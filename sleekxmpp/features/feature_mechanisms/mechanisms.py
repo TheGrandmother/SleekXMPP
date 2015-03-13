@@ -6,7 +6,6 @@
     See the file LICENSE for copying permission.
 """
 
-import sys
 import ssl
 import logging
 
@@ -101,6 +100,9 @@ class FeatureMechanisms(BasePlugin):
                 if hasattr(self.xmpp.socket, 'get_channel_binding'):
                     result[value] = self.xmpp.socket.get_channel_binding()
                 else:
+                    log.debug("Channel binding not supported.")
+                    log.debug("Use Python 3.3+ for channel binding and " + \
+                              "SCRAM-SHA-1-PLUS support")
                     result[value] = None
             elif value == 'host':
                 result[value] = creds.get('host', self.xmpp.requested_jid.domain)
@@ -213,6 +215,8 @@ class FeatureMechanisms(BasePlugin):
             self.attempted_mechs.add(self.mech.name)
             self.xmpp.disconnect()
         else:
+            if resp.get_value() == '':
+                resp.del_value()
             resp.send(now=True)
 
     def _handle_success(self, stanza):

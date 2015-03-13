@@ -50,6 +50,7 @@ __all__ = [
     'xep_0128',  # Extended Service Discovery
     'xep_0131',  # Standard Headers and Internet Metadata
     'xep_0133',  # Service Administration
+    'xep_0152',  # Reachability Addresses
     'xep_0153',  # vCard-Based Avatars
     'xep_0163',  # Personal Eventing Protocol
     'xep_0172',  # User Nickname
@@ -79,4 +80,7 @@ __all__ = [
     'xep_0302',  # XMPP Compliance Suites 2012
     'xep_0308',  # Last Message Correction
     'xep_0313',  # Message Archive Management
+    'xep_0319',  # Last User Interaction in Presence
+    'xep_0323',  # IoT Systems Sensor Data
+    'xep_0325',  # IoT Systems Control
 ]

@@ -1,8 +1,9 @@
 # -*- encoding:utf-8 -*-
-
 from __future__ import unicode_literals
 
-from sleekxmpp.test import *
+import unittest
+from sleekxmpp.exceptions import IqTimeout
+from sleekxmpp.test import SleekTest
 import time
 import threading
 
@@ -49,15 +50,15 @@ class TestStreamRoster(SleekTest):
         # Wait for get_roster to return.
         t.join()
 
+        # Give the event queue time to process.
+        time.sleep(.1)
+
         self.check_roster('tester@localhost', 'user@localhost',
                           name='User',
                           subscription='from',
                           afrom=True,
                           pending_out=True,
                           groups=['Friends', 'Examples'])
-
-        # Give the event queue time to process.
-        time.sleep(.1)
 
         self.failUnless(len(roster_updates) == 1,
                 "Wrong number of roster_update events fired: %s (should be 1)" % len(roster_updates))
