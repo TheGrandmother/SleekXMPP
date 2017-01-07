@@ -10,7 +10,6 @@ class Logger:
         
     def LocalStore(self, jid, timestamp, node, typename, field, value, unit):
         """Stores Timestamped Values of Fields of a Jid in Files as a Log for History"""
-        global self.basedir
         if not os.path.exists(self.basedir):
             os.makedirs(self.basedir)
         if not os.path.exists(self.basedir+'/'+jid.node):
