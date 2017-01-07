@@ -4,6 +4,7 @@ import socket
 
 # This can be used when you are in a test environment and need to make paths right
 sys.path=[os.path.join(os.path.dirname(__file__), '../..')]+sys.path
+sys.path=[os.path.join(os.path.dirname(__file__), '../../../influxdb-python')]+sys.path
 
 import logging
 import unittest
@@ -13,6 +14,7 @@ import datetime
 from glob import glob
 from os.path import splitext, basename, join as pjoin
 from optparse import OptionParser
+from optparse import Option, OptionValueError
 from urllib import urlopen
 
 import sleekxmpp
@@ -27,16 +29,28 @@ else:
     raw_input = input
     
 from sleekxmpp.plugins.xep_0323.device import Device as SensorDevice
-
-from IoT_Logger import Logger as Logger
-
+from IoT_FileLogger import Logger as Logger
+#from IoT_Logger import FileLogger as Logger
+#from IoT_Logger import InfluxLogger as Logger
 #from sleekxmpp.exceptions import IqError, IqTimeout
 
+class MultipleOption(Option):
+    ACTIONS = Option.ACTIONS + ("extend",)
+    STORE_ACTIONS = Option.STORE_ACTIONS + ("extend",)
+    TYPED_ACTIONS = Option.TYPED_ACTIONS + ("extend",)
+    ALWAYS_TYPED_ACTIONS = Option.ALWAYS_TYPED_ACTIONS + ("extend",)
 
-class IoT_TestDevice(sleekxmpp.ClientXMPP):
+    def take_action(self, action, dest, opt, value, values, parser):
+        if action == "extend":
+            values.ensure_value(dest, []).append(value)
+        else:
+            Option.take_action(self, action, dest, opt, value, values, parser)
+            
+
+class IoT_HistoryLogger(sleekxmpp.ClientXMPP):
 
     """
-    A simple IoT device that can act as server or client both on xep 323 and 325
+    A simple IoT device client that asks another JID for values and stores it laclally based on Xep 323
     """
     
     def __init__(self, jid, password):
@@ -44,7 +58,7 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
 
         self.register_plugin('xep_0030')
         self.register_plugin('xep_0323')
-        self.register_plugin('xep_0325')
+        # self.register_plugin('xep_0325') we don't need to write to devices
         self.register_plugin('xep_0199') # XMPP ping
 
         self.add_event_handler("session_start", self.session_start)
@@ -54,10 +68,7 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
         #Some local status variables to use
         self.device = None
         self.logger = Logger()
-        self.releaseMe = False
-        self.beServer = True
-        self.clientJID = None
-        self.controlJID = None
+        self.client_jids=[]
         self.received = set()
         self.controlField = None
         self.controlValue = None
@@ -66,9 +77,15 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
         self.toggle = 0
         self.fieldsRegistered = False
 
+    def add_client_jid(self, client_jid):
+        self.client_jids.append(client_jid)
+        
+    def addDevice(self, device):
+        self.device=device
+        
     def datacallback(self,from_jid,result,nodeId=None,timestamp=None,fields=None,error_msg=None):
         """
-        This method will be called when you ask another IoT device for data with the xep_0323
+        This method will be called back to when you ask another IoT device for data with the xep_0323
         fields example
         [{'typename': 'numeric', 'unit': 'C', 'flags': {'momentary': 'true', 'automaticReadout': 'true'}, 'name': 'temperature', 'value': '13.5'},
         {'typename': 'numeric', 'unit': 'mb', 'flags': {'momentary': 'true', 'automaticReadout': 'true'}, 'name': 'barometer', 'value': '1015.0'},
@@ -80,16 +97,27 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
             return
         
         if result=='accepted':
+            # first stage after we ask for value the device is preparing data for us
             logging.debug("we got accepted from %s",from_jid)            
         elif result=='fields':
+            # second stage we now recieve one or more messages with values on the fields
             logging.info("we got fields from %s on node %s",from_jid,nodeId)
+            if self.device.nodeId!=nodeId:
+                logging.warn("ooops nodeId %s differ %s try resetting local"%(self.device.nodeId,nodeId))
+                self.device.nodeId=nodeId
             if not self.fieldsRegistered:
                 self.fieldsRegistered = True
                 for field in fields:
-                    xmpp.device._add_field(name=field['name'], typename=field['typename'], unit=field['unit'])
+                    if field.has_key('unit'):
+                        xmpp.device._add_field(name=field['name'], typename=field['typename'], unit=field['unit'])
+                    else:
+                        xmpp.device._add_field(name=field['name'], typename=field['typename'], unit='')
             for field in fields:
-                # Storing in Log
-                self.logger.LocalStore(from_jid, timestamp, nodeId, field['typename'], field['name'], field['value'], field['unit'])
+                # Storing in local Logger
+                if field.has_key('unit'):
+                    self.logger.LocalStore(from_jid, timestamp, nodeId, field['typename'], field['name'], field['value'], field['unit'])
+                else:
+                    self.logger.LocalStore(from_jid, timestamp, nodeId, field['typename'], field['name'], field['value'], '')
                 info="(%s %s %s) " % (nodeId,field['name'],field['value'])
                 if field.has_key('unit'):
                     info+="%s " % field['unit']
@@ -100,29 +128,15 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
                     info+="]"
                 logging.info(info)
         elif result=='done':
+            # this is the final stage we have now recieved all data from the other device. The session is closed
             logging.debug("we got  done from %s",from_jid)
         
-    def beClientOrServer(self, clientJID=None):
-        self.beServer=False
-        self.clientJID=clientJID
-
-    def testForRelease(self):
-        # todo thread safe
-        return self.releaseMe
-
-    def doReleaseMe(self):
-        # todo thread safe
-        self.releaseMe=True
-        
-    def addDevice(self, device):
-        self.device=device
-
     def printRoster(self):
+        logging.debug('-' * 72)
         logging.debug('Roster for %s' % self.boundjid.bare)
         groups = self.client_roster.groups()
         for group in groups:
-            logging.debug('\n%s' % group)
-            logging.debug('-' * 72)
+            logging.debug('%s' % group)
             for jid in groups[group]:
                 sub = self.client_roster[jid]['subscription']
                 name = self.client_roster[jid]['name']
@@ -133,6 +147,8 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
                     
                 connections = self.client_roster.presence(jid)
                 for res, pres in connections.items():
+                    if res==self.boundjid.resource:
+                        res=res+"(myself)"
                     show = 'available'
                     if pres['show']:
                         show = pres['show']
@@ -148,12 +164,10 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
         self.send_presence()
         self.get_roster()
         # tell your preffered friend that you are alive 
-        self.send_message(mto='jocke@jabber.sust.se', mbody=self.boundjid.bare +' is now online use xep_323 stanza to talk to me')
+        self.send_message(mto='jabberjocke@jabber.se', mbody=self.boundjid.bare +' is now online use xep_323 stanza to talk to me')
 
-        if not(self.beServer):
-            if self.clientJID:
-                logging.info('We are a client start asking %s for values' % self.clientJID)
-                self.schedule('end', self.delayValue, self.askClientForValue, repeat=True, kwargs={})
+        logging.info('We are a client start asking %s for values' % str(self.client_jids))
+        self.schedule('end', self.delayValue, self.askClientForValue, repeat=True, kwargs={})
 
     def message(self, msg):
         if msg['type'] in ('chat', 'normal'):
@@ -183,18 +197,23 @@ class IoT_TestDevice(sleekxmpp.ClientXMPP):
             logging.debug("got unknown message type %s", str(msg['type']))
 
     def askClientForValue(self):
-        #need to find the full jid to call for data
-        connections=self.client_roster.presence(self.clientJID)
-
-        logging.debug('IoT will call for data to '+ str(connections))
-        for res, pres in connections.items():
-            # ask every session on the jid for data
-            if res!=self.boundjid.resource:
-                #ignoring myself
-                if self.controlField:
-                    session=self['xep_0323'].request_data(self.boundjid.full,self.clientJID+"/"+res,self.datacallback, fields=[self.controlField],flags={"momentary":"true"})
-                else:
-                    session=self['xep_0323'].request_data(self.boundjid.full,self.clientJID+"/"+res,self.datacallback, flags={"momentary":"true"})
+        for a_jid in self.client_jids:
+            connections=self.client_roster.presence(a_jid)
+            all_connection_items=connections.items()
+            if len(self.client_jids)==1 and a_jid==self.boundjid.bare and len(all_connection_items)==1:
+                #we re asking our self for data and there is only one of me
+                logging.warning("there is nobody to call for data for on "+ self.a_jid)
+                return
+            logging.info('IoT will call for data to '+ a_jid)
+            for res, pres in connections.items():
+                # ask every session on the jid for data
+                if res!=self.boundjid.resource:
+                    logging.debug("asking : %s / %s"%(a_jid,res))
+                    #ignoring myself if we are 
+                    if self.controlField:
+                        session=self['xep_0323'].request_data(self.boundjid.full,a_jid+"/"+res,self.datacallback, fields=[self.controlField],flags={"momentary":"true"})
+                    else:
+                        session=self['xep_0323'].request_data(self.boundjid.full,a_jid+"/"+res,self.datacallback, flags={"momentary":"true"})
             
 class TheDevice(SensorDevice):
     """
@@ -207,32 +226,42 @@ class TheDevice(SensorDevice):
         self.logger = Logger() 
 
     def get_history(self, session, fields, from_flag, to_flag, callback):
-
-        field = fields[0]
-        timestamp, node, typename, name, value, unit = self.logger.LocalRetrieve(opts.jid, field, from_flag, to_flag)
+        """
+        looks in storage for the history and returns a series with te history
+        """
         time_block = []
-        for i in range(len(timestamp)):
-            ts_block = {}
-            field_block = [];
-            field_block.append({"name": name[i],
-                            "type": typename[i], 
-                            "unit": unit[i],
-                            "dataType": None,
-                            "value": value[i], 
-                            "flags": {'historical': 'true', 'automaticReadout': 'true'}})
-            ts_block["timestamp"] = timestamp[i]
-            ts_block["fields"] = field_block
-            time_block.append(ts_block)
+        for field in fields:
+            timestamp, node, typename, name, value, unit = self.logger.LocalRetrieve(opts.jid, field, from_flag, to_flag)
+            for i in range(len(timestamp)):
+                ts_block = {}
+                field_block = [];
+                field_block.append({"name": name[i],
+                                    "type": typename[i], 
+                                    "unit": unit[i],
+                                    "dataType": None,
+                                    "value": value[i], 
+                                    "flags": {'historical': 'true', 'automaticReadout': 'true'}})
+                ts_block["timestamp"] = timestamp[i]
+                ts_block["fields"] = field_block
+                time_block.append(ts_block)
+        logging.info('History ready calling callback nodeid %s data %s'%(self.nodeId,str(time_block)))
         callback(session, result="done", nodeId=self.nodeId, timestamp_block=time_block);
         return
         
 if __name__ == '__main__':
     """
-    To Run :
-    python IoT_HistoryLogger.py -j device1@xmpp.xmpp-iot.org -p d3vic31 --phost proxy.iiit.ac.in --pport 8080 --delay 10 --debug
+    To Run and call your self :
+    python IoT_HistoryLogger.py -j device1@xmpp.xmpp-iot.org -p passwd --phost proxy.iiit.ac.in --pport 8080 --delay 10 --debug
+
+    # call anotherjid@xmpp.xmpp-iot.org (must be part of roster and online)
+    python IoT_HistoryLogger.py -j device1@xmpp.xmpp-iot.org -p passwd --phost proxy.iiit.ac.in --pport 8080 --delay 10 --debug -g anotherjid@xmpp.xmpp-iot.org
+
+    # calling several jids
+    python IoT_HistoryLogger.py -j device1@xmpp.xmpp-iot.org -p passwd --phost proxy.iiit.ac.in --pport 8080 --delay 10 --debug -g anotherjid@xmpp.xmpp-iot.org -g yetanother@xmpp.xmpp-iot.org ...
+    
     """
 
-    optp = OptionParser()
+    optp = OptionParser(option_class=MultipleOption)
 
     # Output verbosity options.
     optp.add_option('-q', '--quiet', help='set logging to ERROR',
@@ -251,6 +280,8 @@ if __name__ == '__main__':
                     help="JID to use")
     optp.add_option("-p", "--password", dest="password",
                     help="password to use")
+    optp.add_option("-g", "--getsensorjid", dest="getsensorjid",action="extend",type="string",
+                    help="Device jid to call for data on can be a list of jids", default = None)
     optp.add_option("--phost", dest="proxy_host",
                     help="Proxy hostname", default = None)
     optp.add_option("--pport", dest="proxy_port",
@@ -261,7 +292,7 @@ if __name__ == '__main__':
                     help="Proxy password", default = None)
 
     optp.add_option("--delay", dest="delayvalue",
-                    help="secondsdelay between reads or controls", default=30)
+                    help="secondsdelay between reads", default=30)
     
     opts, args = optp.parse_args()
 
@@ -274,7 +305,7 @@ if __name__ == '__main__':
     if opts.password is None:
         opts.password = raw_input("Password: ")
         
-    xmpp = IoT_TestDevice(opts.jid,opts.password)
+    xmpp = IoT_HistoryLogger(opts.jid,opts.password)
     xmpp.delayValue=int(opts.delayvalue)
     logging.debug("DELAY " + str(int(opts.delayvalue)) + "  " + str(xmpp.delayValue))
     
@@ -287,10 +318,22 @@ if __name__ == '__main__':
             'password' : opts.proxy_pass}
     
     logging.debug("will try to call another device for data")
-    myDevice = TheDevice("history");
+    myDevice = TheDevice("dummy");
     xmpp.device=myDevice
-    xmpp['xep_0323'].register_node(nodeId="history", device=myDevice, commTimeout=10);
-    xmpp.beClientOrServer(clientJID=opts.jid)
+    xmpp['xep_0323'].register_node(nodeId="ctcpump", device=myDevice, commTimeout=10);
+    logging.debug(str((opts.getsensorjid)))
+    logging.debug(str(type(opts.getsensorjid)))
+                  
+    if opts.getsensorjid!=None and type(opts.getsensorjid)==type([]):
+        logging.debug(str(opts.getsensorjid))
+        for jid in opts.getsensorjid:
+            xmpp.add_client_jid(jid)
+    elif opts.getsensorjid:
+        # asking another jid for values
+        xmpp.add_client_jid(opts.getsensorjid)
+    else:
+        # Default to asking another instanse of myself 
+        xmpp.add_client_jid(opts.jid)
     xmpp.connect()
     xmpp.process(block=True)
     logging.debug("ready ending")
