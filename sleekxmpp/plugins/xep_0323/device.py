@@ -140,10 +140,12 @@ class Device(object):
 
             callback(session, result="done", nodeId=self.nodeId, timestamp_block=ts_block);
             return
-
-        if "historical" in flags and flags['historical'] == "true":
-            self.get_history(session, fields, flags['from'], flags['to'], callback)
-            return
+        
+        #Check if the request is aimed at historical values
+        for f in ['historical','historicalSecond','historicalMinute','historicalHour','historicalDay','historicalWeek','historicalMonth','historicalQuarter','historicalYear','historicalOther']:
+            if f in flags and flags[f] == "true":
+                self.get_history(session, fields, flags['from'], flags['to'], callback, flags)
+                return
 
         from_flag = self._datetime_flag_parser(flags, 'from')
         to_flag = self._datetime_flag_parser(flags, 'to')
@@ -178,7 +180,7 @@ class Device(object):
 
         callback(session, result="done", nodeId=self.nodeId, timestamp_block=None);
 
-    def get_history(self, session, fields, from_flag, to_flag, callback):
+    def get_history(self, session, fields, from_flag, to_flag, callback, flags={}):
         """Over Ride with Hisory Function"""
         pass
 

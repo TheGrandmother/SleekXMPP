@@ -102,9 +102,16 @@ class IoT_HistoryLogger(sleekxmpp.ClientXMPP):
         elif result=='fields':
             # second stage we now recieve one or more messages with values on the fields
             logging.info("we got fields from %s on node %s",from_jid,nodeId)
-            if self.device.nodeId!=nodeId:
-                logging.warn("ooops nodeId %s differ %s try resetting local"%(self.device.nodeId,nodeId))
-                self.device.nodeId=nodeId
+            logging.debug("jids " + from_jid.bare + " "+ self.boundjid.bare)
+            if  from_jid.bare==self.boundjid.bare:
+                #we are logging our self we need to have the device nodeId in sync
+                if self.device.nodeId!=nodeId:
+                    logging.warn("We got the right nodeId %s differ %s will resetting local device and register node"%(self.device.nodeId,nodeId))
+                    self.device.nodeId=nodeId
+                    #register the node
+                    #self['xep_0323'].register_node(nodeId=nodeId, device=self.device, commTimeout=10);
+            if not self['xep_0323'].has_node(nodeId):
+                self['xep_0323'].register_node(nodeId=nodeId, device=self.device, commTimeout=10);
             if not self.fieldsRegistered:
                 self.fieldsRegistered = True
                 for field in fields:
@@ -223,18 +230,56 @@ class TheDevice(SensorDevice):
     """
     def __init__(self,nodeId):
         SensorDevice.__init__(self,nodeId)
-        self.logger = Logger() 
+        self.logger = Logger()
+        self.maxHistorySent=3000 #if we find more than 3000 we don't proceed? 
+        self.sendChunks=50 #if we find alot of values we start sending chunks
 
-    def get_history(self, session, fields, from_flag, to_flag, callback):
+    def request_fields(self, fields, flags, session, callback):
+        """
+        This is a history logger therfore we need to never answer momentary values. That should be done
+        by the active device. We override the request_fields here but recalls the base class
+        code in the plugins/xep_0323/device.py
+        """
+        if "momentary" in flags and flags['momentary'] == "true" or \
+           "all" in flags and flags['all'] == "true":
+           # we cannot do momentary values just silently ignore
+           # TODO should we return a fail?
+           self._send_reject(session, callback)
+        else:
+            # Otherwise we return to the base class to do the work
+            SensorDevice.request_fields(self, fields, flags, session, callback)
+
+    def get_history(self, session, fields, from_flag, to_flag, callback,flags={}):
         """
         looks in storage for the history and returns a series with te history
         """
+        if not('historical' in flags or 'historicalOther' in flags):
+            #we need to check if there is more history flags
+            logging.error("Advanced historical flags not implemented")
+            callback(session, result="error", nodeId=self.nodeId, timestamp_block=None, error_msg="Advanced historical flags not implemented")
+            return
+                
         time_block = []
         for field in fields:
             timestamp, node, typename, name, value, unit = self.logger.LocalRetrieve(opts.jid, field, from_flag, to_flag)
-            for i in range(len(timestamp)):
+            nr_of_values=len(timestamp)
+            if nr_of_values>self.maxHistorySent:
+                logging.error("To many values")
+                callback(session, result="error", nodeId=self.nodeId, timestamp_block=None, error_msg="To many historical %s values more than %i"%(self.nodeId+":"+field,self.maxHistorySent))
+                return
+
+            i=0
+            chunk=1
+            
+            while i<nr_of_values:
+                if i>chunk*self.sendChunks:
+                    logging.info('History chunk sent nodeid %s field %s %i'%(self.nodeId,field,i))
+                    logging.debug(str(time_block))
+                    callback(session, result="fields", nodeId=self.nodeId, timestamp_block=time_block)
+                    chunk+=1
+                    time_block = []
                 ts_block = {}
-                field_block = [];
+                field_block = []
                 field_block.append({"name": name[i],
                                     "type": typename[i], 
                                     "unit": unit[i],
@@ -244,8 +289,10 @@ class TheDevice(SensorDevice):
                 ts_block["timestamp"] = timestamp[i]
                 ts_block["fields"] = field_block
                 time_block.append(ts_block)
-        logging.info('History ready calling callback nodeid %s data %s'%(self.nodeId,str(time_block)))
-        callback(session, result="done", nodeId=self.nodeId, timestamp_block=time_block);
+                i+=1
+        logging.info('History ready calling callback nodeid %s i %i'%(self.nodeId,i))
+        #callback(session, result="fields", nodeId=self.nodeId, timestamp_block=time_block)
+        callback(session, result="done", nodeId=self.nodeId, timestamp_block=time_block)
         return
         
 if __name__ == '__main__':
@@ -258,6 +305,9 @@ if __name__ == '__main__':
 
     # calling several jids
     python IoT_HistoryLogger.py -j device1@xmpp.xmpp-iot.org -p passwd --phost proxy.iiit.ac.in --pport 8080 --delay 10 --debug -g anotherjid@xmpp.xmpp-iot.org -g yetanother@xmpp.xmpp-iot.org ...
+
+    clients will ask for historical values:
+    <iq to="device1@xmpp.xmpp-iot.org/4444" from="some_one@xmpp.sust.se/4711" id="36:sendIQ" type="get"><req xmlns="urn:xmpp:iot:sensordata" from="2016-12-31T22:57:41+01:00" seqnr="84" historical="true" to="2017-01-07T22:57:41+01:00"><node nodeId="ctcpump" /><field name="brineTemp" /></req></iq>
     
     """
 
@@ -320,7 +370,8 @@ if __name__ == '__main__':
     logging.debug("will try to call another device for data")
     myDevice = TheDevice("dummy");
     xmpp.device=myDevice
-    xmpp['xep_0323'].register_node(nodeId="ctcpump", device=myDevice, commTimeout=10);
+    # Since we don't know the nodeId until we get the first values from 
+    # xmpp['xep_0323'].register_node(nodeId="dummy", device=myDevice, commTimeout=10);
     logging.debug(str((opts.getsensorjid)))
     logging.debug(str(type(opts.getsensorjid)))
                   

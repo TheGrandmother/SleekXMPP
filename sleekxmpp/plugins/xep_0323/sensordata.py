@@ -219,7 +219,12 @@ class XEP_0323(BasePlugin):
                                 "commTimeout": commTimeout,
                                 "sourceId": sourceId, 
                                 "cacheType": cacheType};
-
+    def has_node(self, nodeId):
+        """
+        Check function to see if a node has been registered
+        """
+        return nodeId in self.nodes
+        
     def _set_authenticated(self, auth=''):
         """ Internal testing function """
         self.test_authenticated_from = auth;
@@ -431,8 +436,8 @@ class XEP_0323(BasePlugin):
                                "done"   - Indicates that the readout is complete. May contain 
                                           readout data.
             timestamp_block -- [optional] Only applies when result != "error" 
-                               The readout data. Structured as a dictionary:
-              { 
+                               The readout data. Structured as a list of dictionaries:
+              [{ 
                 timestamp:     timestamp for this datablock,
                 fields:        list of field dictionary (one per readout field).
                   readout field dictionary format:
@@ -445,7 +450,7 @@ class XEP_0323(BasePlugin):
                     flags:     [optional] data classifier flags for the field, e.g. momentary
                                Formatted as a dictionary like { "flag name": "flag value" ... }
                   }  
-              }
+              }...]
             error_msg        -- [optional] Only applies when result == "error".
                                 Error details when a request failed.
         """
@@ -481,7 +486,10 @@ class XEP_0323(BasePlugin):
             msg['fields']['seqnr'] = self.sessions[session]['seqnr'];
 
             if timestamp_block is not None and len(timestamp_block) > 0:
+                # start processing the fields to produce the return message <fields> tag
+                
                 node = msg['fields'].add_node(nodeId);
+                # logging.debug(str(node))
                 if isinstance(timestamp_block, dict):
                     ts = node.add_timestamp(timestamp_block["timestamp"]);
 
@@ -494,14 +502,21 @@ class XEP_0323(BasePlugin):
                                             flags=f['flags']);
                 else:
                     for timestamp in timestamp_block:
+                        # logging.debug(timestamp["timestamp"])
                         ts = node.add_timestamp(timestamp["timestamp"]);
-                        for f in timestamp["fields"]:
-                            data = ts.add_data( typename=f['type'], 
-                                                name=f['name'], 
-                                                value=f['value'], 
-                                                unit=f['unit'], 
-                                                dataType=f['dataType'], 
-                                                flags=f['flags'])
+                        if ts!=None:
+                            # cant figure out why but sometimes the node is not created
+                            # could be duplicate timestamps? we just ignore and continue
+                            # that seems to work fine
+                            # logging.debug(str(ts))
+                            for f in timestamp["fields"]:
+                                # logging.debug(str(f))
+                                data = ts.add_data( typename=f['type'], 
+                                                    name=f['name'], 
+                                                    value=f['value'], 
+                                                    unit=f['unit'], 
+                                                    dataType=f['dataType'], 
+                                                    flags=f['flags'])
 
             if result == "done":
                 self.sessions[session]["commTimers"][nodeId].cancel();
