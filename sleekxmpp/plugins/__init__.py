@@ -11,6 +11,8 @@ from sleekxmpp.plugins.base import register_plugin, load_plugin
 
 
 __all__ = [
+    # IEEE
+    'ieee_sensordata',  # Formerly known as xep_0323
     # XEPS
     'xep_0004',  # Data Forms
     'xep_0009',  # Jabber-RPC
