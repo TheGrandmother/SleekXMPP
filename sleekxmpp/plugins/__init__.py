@@ -13,6 +13,7 @@ from sleekxmpp.plugins.base import register_plugin, load_plugin
 __all__ = [
     # IEEE
     'ieee_sensordata',  # Formerly known as xep_0323
+    'ieee_control',  # Formerly known as xep_0323
     # XEPS
     'xep_0004',  # Data Forms
     'xep_0009',  # Jabber-RPC
@@ -35,7 +36,7 @@ __all__ = [
     'xep_0066',  # Out of Band Data
     'xep_0071',  # XHTML-IM
     'xep_0077',  # In-Band Registration
-#   'xep_0078',  # Non-SASL auth. Don't automatically load
+    #   'xep_0078',  # Non-SASL auth. Don't automatically load
     'xep_0079',  # Advanced Message Processing
     'xep_0080',  # User Location
     'xep_0082',  # XMPP Date and Time Profiles
