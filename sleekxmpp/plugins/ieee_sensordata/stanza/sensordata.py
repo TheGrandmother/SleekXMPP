@@ -59,11 +59,12 @@ class NodeHandler():
         """
         if node_id not in self._nodes:
             self._nodes.add((node_id))
-            node = ResponseNode(parent=self)
+            node = self.node_type(parent=self)
             node['id'] = node_id
             node['src'] = source_id
             node['pt'] = source_partition
-            if substanzas is not None:
+            if substanzas is not None \
+                    and hasattr(self.node_type, 'set_timestamps'):
                 node.set_timestamps(substanzas)
 
             self.iterables.append(node)

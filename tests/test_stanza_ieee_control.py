@@ -10,13 +10,13 @@
 """
 
 from sleekxmpp.test import SleekTest, unittest
-from tests.test_stanza_ieee_sensordata import make_iq
+from tests.test_stanza_ieee_sensordata import TestUtils
 import sleekxmpp.plugins.ieee_control as ieee_control
 
 namespace = 'urn:ieee:iot:ctr:1.0'
 
 
-class TestIEEEControlStanzas(SleekTest):
+class TestIEEEControlStanzas(SleekTest, TestUtils):
 
     def setUp(self):
         pass
@@ -25,11 +25,7 @@ class TestIEEEControlStanzas(SleekTest):
         """
         test of set request stanza
         """
-        (iq, _, iq_header) = make_iq(iq_type='set')
-        iq['type'] = 'set'
-        iq['from'] = 'master@clayster.com/amr'
-        iq['to'] = 'device@clayster.com'
-        iq['id'] = '1'
+        (iq, _, iq_header) = self.make_iq(iq_type='set')
         iq['set'].add_node('Device02', 'Source02', 'MyCacheType')
         iq['set'].add_node('Device15')
         iq['set'].add_data('Tjohej', 'b', 'true')
@@ -43,60 +39,50 @@ class TestIEEEControlStanzas(SleekTest):
                 </set>
             </iq>
         """.format(iq_header=iq_header, namespace=namespace))
-#
-#        iq['set'].del_node("Device02")
-#
-#        self.check(iq, """
-#            <iq type='set'
-#                from='master@clayster.com/amr'
-#                to='device@clayster.com'
-#                id='1'>
-#                <set xmlns='urn:xmpp:iot:control'>
-#                    <node nodeId='Device15'/>
-#                    <boolean name='Tjohej' value='true'/>
-#                </set>
-#            </iq>
-#        """
-#                   )
-#
-#        iq['set'].del_nodes()
-#
-#        self.check(iq, """
-#            <iq type='set'
-#                from='master@clayster.com/amr'
-#                to='device@clayster.com'
-#                id='1'>
-#                <set xmlns='urn:xmpp:iot:control'>
-#                    <boolean name='Tjohej' value='true'/>
-#                </set>
-#            </iq>
-#        """
-#                   )
-#
-#    def testDirectSet(self):
-#        """
-#        test of direct set stanza
-#        """
-#        msg = self.Message()
-#        msg['from'] = 'master@clayster.com/amr'
-#        msg['to'] = 'device@clayster.com'
-#        msg['set'].add_node("Device02")
-#        msg['set'].add_node("Device15")
-#        msg['set'].add_data("Tjohej", "boolean", "true")
-#
-#        self.check(msg, """
-#            <message
-#                from='master@clayster.com/amr'
-#                to='device@clayster.com'>
-#                <set xmlns='urn:xmpp:iot:control'>
-#                    <node nodeId='Device02'/>
-#                    <node nodeId='Device15'/>
-#                    <boolean name='Tjohej' value='true'/>
-#                </set>
-#            </message>
-#        """
-#                   )
-#
+
+        iq['set'].del_node('Device02')
+
+        self.check(iq, """
+            {iq_header}
+                <set xmlns='{namespace}'>
+                    <nd id='Device15'/>
+                    <b n='Tjohej' v='true'/>
+                </set>
+            </iq>
+        """.format(iq_header=iq_header, namespace=namespace))
+
+        iq['set'].del_nodes()
+
+        self.check(iq, """
+            {iq_header}
+                <set xmlns='{namespace}'>
+                    <b n='Tjohej' v='true'/>
+                </set>
+            </iq>
+        """.format(iq_header=iq_header, namespace=namespace))
+
+    def testDirectSet(self):
+        """
+        test of direct set stanza
+        """
+        (msg, _, msg_header) = self.make_msg(message_type='set')
+        msg['set'].add_node('Device02')
+        msg['set'].add_node('Device15')
+        msg['set'].add_data('Tjohej', 'b', 'true')
+
+        self.check(msg, """
+            {msg_header}
+                <set xmlns='{namespace}'>
+                    <nd id='Device02'/>
+                    <nd id='Device15'/>
+                    <b n='Tjohej' v='true'/>
+                </set>
+            </message>
+        """.format(msg_header=msg_header, namespace=namespace))
+
+#    NOTE:  I have not been able to deduce the counterpart of this in
+#           in the IEEE specifictions. No apparent counterpart to the
+#           element setResponse exists.
 #    def testSetResponse(self):
 #        """
 #        test of set response stanza
@@ -118,26 +104,18 @@ class TestIEEEControlStanzas(SleekTest):
 #        """
 #                   )
 #
-#        iq = self.Iq()
-#        iq['type'] = 'error'
-#        iq['from'] = 'master@clayster.com/amr'
-#        iq['to'] = 'device@clayster.com'
-#        iq['id'] = '9'
-#        iq['setResponse']['responseCode'] = "OtherError"
-#        iq['setResponse']['error']['var'] = "Output"
-#        iq['setResponse']['error']['text'] = "Test of other error.!"
-#
-#        self.check(iq, """
-#            <iq type='error'
-#                from='master@clayster.com/amr'
-#                to='device@clayster.com'
-#                id='9'>
-#                <setResponse xmlns='urn:xmpp:iot:control' responseCode='OtherError'>
-#                    <error var='Output'>Test of other error.!</error>
-#                </setResponse>
-#            </iq>
-#        """
-#                   )
+    def testError(self):
+        (iq, _, iq_header) = self.make_iq(iq_type='resp')
+        iq['resp']['paramError']['var'] = 'Output'
+        iq['resp']['paramError']['text'] = 'some text'
+
+        self.check(iq, """
+            {iq_header}
+                <resp xmlns='{namespace}'>
+                    <paramError var='Output'>some text</paramError>
+                </resp>
+            </iq>
+        """.format(iq_header=iq_header, namespace=namespace))
 #
 #        iq = self.Iq()
 #        iq['type'] = 'error'

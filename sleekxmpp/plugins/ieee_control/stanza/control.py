@@ -26,9 +26,18 @@ class Control(ElementBase):
     interfaces = set(tuple())
 
 
+class RequestNode(ElementBase):
+    """ Node element in a request """
+    namespace = namespace
+    name = 'nd'
+    plugin_attrib = name
+    interfaces = set(['id', 'src', 'pt'])
+
+
 class GetForm(ElementBase, NodeHandler):
     namespace = namespace
     name = 'getForm'
+    node_type = RequestNode
     interfaces = set(['nodes', 'st', 'dt', 'ut'])
 
 
@@ -43,6 +52,7 @@ class ControlSet(ElementBase, NodeHandler):
     name = 'set'
     plugin_attrib = name
     interfaces = set(['nodes', 'datas', 'st', 'dt', 'ut'])
+    node_type = RequestNode
 
     def __init__(self, xml=None, parent=None):
         ElementBase.__init__(self, xml, parent)
@@ -166,19 +176,12 @@ class ControlSet(ElementBase, NodeHandler):
             self.iterables.remove(data)
 
 
-class RequestNode(ElementBase):
-    """ Node element in a request """
-    namespace = namespace
-    name = 'nd'
-    plugin_attrib = name
-    interfaces = set(['id', 'src', 'pt'])
-
-
 class ControlSetResponse(ElementBase, NodeHandler):
     namespace = namespace
     name = 'resp'
     plugin_attrib = name
     interfaces = set(['nodes', 'datas'])
+    node_type = RequestNode
 
     def __init__(self, xml=None, parent=None):
         ElementBase.__init__(self, xml, parent)

@@ -8,11 +8,11 @@ import sleekxmpp.plugins.ieee_sensordata
 namespace = 'urn:ieee:iot:sd:1.0'
 
 
-class TestIEEESensorDataStanzas(SleekTest):
-
+class TestUtils():
     def make_iq(self, iq_type='get', iq_from=None, iq_to=None, iq_id=None):
         iq = self.Iq()
         iq['type'] = iq_type
+        print(iq['type'], iq_type)
         if iq_from is not None:
             iq['from'] = iq_from
         else:
@@ -36,6 +36,8 @@ class TestIEEESensorDataStanzas(SleekTest):
                 to='{iq_to}'
                 id='{iq_id}'>
         """.format(**params)
+        assert iq['type'] is not None
+        assert iq['type'] != '', iq_type
 
         return (iq,
                 params,
@@ -72,6 +74,9 @@ class TestIEEESensorDataStanzas(SleekTest):
         return (message,
                 params,
                 message_header)
+
+
+class TestIEEESensorDataStanzas(SleekTest, TestUtils):
 
     def setUp(self):
         pass
